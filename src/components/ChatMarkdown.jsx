@@ -45,19 +45,23 @@ const components = {
     </blockquote>
   ),
   hr: () => <hr className="my-4 border-slate-200" />,
-  code: ({ inline, className, children, ...props }) => {
-    if (inline) {
+  code: ({ className, children, ...props }) => {
+    const text = Array.isArray(children)
+      ? children.join('')
+      : String(children ?? '')
+    const isBlock = /(^|\s)language-/.test(className ?? '') || text.includes('\n')
+    if (isBlock) {
       return (
-        <code
-          className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-slate-800"
-          {...props}
-        >
+        <code className={cn('font-mono text-[0.85em]', className)} {...props}>
           {children}
         </code>
       )
     }
     return (
-      <code className={cn('font-mono text-[0.85em]', className)} {...props}>
+      <code
+        className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-slate-800"
+        {...props}
+      >
         {children}
       </code>
     )
