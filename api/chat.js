@@ -1,5 +1,6 @@
 import { google } from '@ai-sdk/google'
 import { streamText, convertToModelMessages } from 'ai'
+import { withSupermemory } from '@supermemory/tools/ai-sdk'
 
 const TRIDOSHA_SYSTEM_PROMPT = `You are TriDosha AI, a warm and knowledgeable Ayurvedic wellness assistant.
 
@@ -18,6 +19,18 @@ Style:
 - Be concise, friendly, and practical. Prefer short paragraphs and bullet lists.
 - Ask a brief clarifying question if the user's goal is unclear.
 - When relevant, reference which dosha(s) a recommendation targets.`
+
+const memoryPromptTemplate = (data) => `
+<tridosha_memory>
+  <known_profile>
+    ${data.userMemories || 'No prior profile stored yet.'}
+  </known_profile>
+  <relevant_past_conversation>
+    ${data.generalSearchMemories || 'No specifically relevant prior turns.'}
+  </relevant_past_conversation>
+  Use this context only if it's relevant to the user's current question. Never invent facts that aren't supported by it.
+</tridosha_memory>
+`.trim()
 
 export default async function handler(request) {
   if (request.method !== 'POST') {
@@ -42,6 +55,14 @@ export default async function handler(request) {
     )
   }
 
+  const userId = typeof body?.userId === 'string' ? body.userId.trim() : ''
+  if (!userId) {
+    return Response.json(
+      { error: 'Expected a non-empty string `userId` in the request body.' },
+      { status: 400 },
+    )
+  }
+
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     return Response.json(
       {
@@ -52,9 +73,20 @@ export default async function handler(request) {
     )
   }
 
+  const baseModel = google('gemini-2.5-flash')
+  const model = process.env.SUPERMEMORY_API_KEY
+    ? withSupermemory(baseModel, userId, {
+        apiKey: process.env.SUPERMEMORY_API_KEY,
+        mode: 'full',
+        addMemory: 'always',
+        skipMemoryOnError: true,
+        promptTemplate: memoryPromptTemplate,
+      })
+    : baseModel
+
   try {
     const result = streamText({
-      model: google('gemini-2.5-flash'),
+      model,
       system: TRIDOSHA_SYSTEM_PROMPT,
       messages: convertToModelMessages(messages),
     })
