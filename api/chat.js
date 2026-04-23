@@ -82,8 +82,20 @@ export default async function handler(request) {
     )
   }
 
+  // SECURITY CAVEAT: `userId` is sent by the (demo-grade) client from
+  // `localStorage.user.email` and is NOT verified server-side. Any caller can
+  // POST with any email as `userId` and read or poison that user's Supermemory
+  // bucket. This is acceptable for the current demo auth model (login accepts
+  // any email+password), but before any production deployment we MUST derive
+  // `userId` from a signed session (JWT / signed cookie) on the server instead
+  // of trusting the request body. See SKILL.md "Known pre-existing quirks".
   const userId = typeof body?.userId === 'string' ? body.userId.trim() : ''
-  if (!userId) {
+
+  // `userId` is only required when Supermemory is enabled; without it the
+  // memory middleware has no partition key. In the raw-Gemini fallback path
+  // (no `SUPERMEMORY_API_KEY`), `userId` is unused, so we accept requests
+  // without it to preserve the original API contract.
+  if (process.env.SUPERMEMORY_API_KEY && !userId) {
     return Response.json(
       { error: 'Expected a non-empty string `userId` in the request body.' },
       { status: 400 },

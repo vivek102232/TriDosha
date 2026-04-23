@@ -25,6 +25,7 @@ npm run dev              # http://localhost:5173, /api/chat auto-mounted
 ## Auth model (demo-grade)
 - `/login` accepts any email+password and writes `{ email }` to `localStorage.user`. `ProtectedRoute` gates routes on the mere presence of that key. Good enough for dev and testing — do not trust for production.
 - Protected routes today: `/dashboard`, `/chat`.
+- **Known vulnerability — `userId` is client-trusted.** `POST /api/chat` reads the Supermemory partition key (`userId`) directly from the request body. An attacker can POST any email and read/poison that user's stored memories. Before any production deployment, replace `body.userId` in `api/chat.js` with an identity derived from a signed session (JWT / signed cookie) on the server. Documented inline at the `userId` read site in `api/chat.js`.
 
 ## How to verify the AI chat feature end-to-end
 These checks distinguish a working chat from a broken one (e.g. a non-streaming shortcut or a leaked key). Run them whenever touching the chat API, the Vite plugin, the model config, or the Chat UI.
@@ -37,14 +38,14 @@ These checks distinguish a working chat from a broken one (e.g. a non-streaming 
    // expect: 200, text/event-stream
    // body should contain multiple lines starting with: data: {"type":"text-delta", ...
    ```
-2. **Context handoff.** Monkey-patch `window.fetch` before sending a follow-up, capture `init.body`, and assert the `messages` array length is ≥ 3 and alternates roles (`user,assistant,user,…`) AND that `userId` is present (required by `api/chat.js`). If the follow-up request body has length 1 the UI is resetting history; if `userId` is missing the server responds 400.
+2. **Context handoff.** Monkey-patch `window.fetch` before sending a follow-up, capture `init.body`, and assert the `messages` array length is ≥ 3 and alternates roles (`user,assistant,user,…`) AND that `userId` is present. If the follow-up request body has length 1 the UI is resetting history. `userId` is only required by the server when `SUPERMEMORY_API_KEY` is set; without the key, the raw-Gemini path accepts requests with or without `userId`.
 3. **Key leakage.** In the browser console on `/chat`:
    ```js
    const scripts = await Promise.all([...document.scripts].map(s => s.src ? fetch(s.src).then(r=>r.text()).catch(()=>'') : s.textContent||''));
    const hits = (scripts.join('\n').match(/AIza[A-Za-z0-9_-]+/g) || []).length;
    console.log('bundleAIzaMatches=', hits); // must be 0
    ```
-   Also check the Network tab: the `POST /api/chat` request must NOT contain the key in any header or in the body; the body must only contain `messages`.
+   Also check the Network tab: the `POST /api/chat` request must NOT contain the key in any header or in the body; the body should only contain `messages` and (when logged in) `userId`.
 4. **Stop button.** Send a prompt that produces a long response (e.g. "Write a detailed 500-word essay on …"), click **Stop** as soon as the button appears, wait 15s, and assert the assistant bubble did not grow further. If tokens keep arriving, `useChat`'s `stop()` isn't wired.
 5. **System prompt wired.** For the prompt "What are the three doshas?", the reply must mention at least two of `Vata`, `Pitta`, `Kapha`. If the reply is generic / not Ayurveda-flavored, the `TRIDOSHA_SYSTEM_PROMPT` constant in `api/chat.js` isn't being passed through.
 
